@@ -1,131 +1,109 @@
 (function () {
-    // 1. Настройки поиска TorrServer
-    const ports = [8090, 8080];
-    const hosts = ['127.0.0.1', 'localhost'];
-    const subnets = ['192.168.0', '192.168.1', '10.0.0'];
-    const timeout = 1000;
+    'use strict';
 
-    // 2. Функция fetch с таймаутом
-    async function fetchWithTimeout(url, ms = 1000) {
-        const controller = new AbortController();
-        const id = setTimeout(() => controller.abort(), ms);
-        try {
-            const res = await fetch(url, { signal: controller.signal });
-            clearTimeout(id);
-            return res;
-        } catch {
-            clearTimeout(id);
+    Lampa.Platform.tv();
+
+    var icon_add_server = '<svg fill="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" stroke="currentColor" stroke-width="0.48"><g><path d="M12 5v14m7-7H5" stroke="currentColor" stroke-width="2"/></g></svg>';
+
+    // Настройки поиска TorrServer
+    var ports = [8090, 8080];
+    var hosts = ['127.0.0.1', 'localhost'];
+    var subnets = ['192.168.0', '192.168.1', '10.0.0'];
+    var timeout = 1000;
+
+    function fetchWithTimeout(url, ms) {
+        ms = ms || timeout;
+        var controller = new AbortController();
+        var id = setTimeout(function () { controller.abort(); }, ms);
+        return fetch(url, { signal: controller.signal })
+            .then(function (res) { clearTimeout(id); return res; })
+            .catch(function () { clearTimeout(id); return null; });
+    }
+
+    function checkHost(host, port) {
+        var url = 'http://' + host + ':' + port + '/';
+        return fetchWithTimeout(url).then(function (res) {
+            if (res && res.ok) {
+                return res.text().then(function (text) {
+                    if (/torrserver|torrsrv|version|json/i.test(text)) return { host: host, port: port };
+                    return null;
+                }).catch(function () { return null; });
+            }
             return null;
-        }
+        });
     }
 
-    // 3. Проверка одного хоста
-    async function checkHost(host, port) {
-        const url = `http://${host}:${port}/`;
-        const res = await fetchWithTimeout(url, timeout);
-        if (res && res.ok) {
-            const text = await res.text().catch(() => '');
-            if (/torrserver|torrsrv|version|json/i.test(text)) {
-                return { host, port };
-            }
-        }
-        return null;
-    }
-
-    // 4. Основной поиск в сети
-    async function discoverTorrServer() {
-        const candidates = [];
-
-        // localhost
-        hosts.forEach(h => ports.forEach(p => candidates.push({ h, p })));
-
-        // Локальная сеть 192.168.x.x, 10.x.x.x (только первые 10 IP каждого подсети)
-        subnets.forEach(base => {
-            for (let i = 1; i <= 10; i++) {
-                const ip = `${base}.${i}`;
-                ports.forEach(p => candidates.push({ h: ip, p }));
+    function discoverTorrServer() {
+        var candidates = [];
+        hosts.forEach(function (h) { ports.forEach(function (p) { candidates.push({ h: h, p: p }); }); });
+        subnets.forEach(function (base) {
+            for (var i = 1; i <= 10; i++) {
+                ports.forEach(function (p) { candidates.push({ h: base + '.' + i, p: p }); });
             }
         });
 
-        for (const { h, p } of candidates) {
-            const res = await checkHost(h, p);
-            if (res) return res; // возвращаем первый найденный сервер
-        }
-        return null;
-    }
+        var chain = Promise.resolve(null);
+        var found = null;
 
-    // 5. Открытие настроек плагина в Lampa
-    function openLocalSettings() {
-        const stored = Lampa.Storage.get('local_torrserver') || {};
-        const ip = stored.ip || 'не найден';
-        const port = stored.port || '';
-
-        const html = $('<div class="about"><div class="about__title">Локальный TorrServer</div></div>');
-        const field = $('<div class="selector" data-name="ip" data-type="input">IP: <span>' + ip + '</span></div>');
-        const fieldPort = $('<div class="selector" data-name="port" data-type="input">Порт: <span>' + port + '</span></div>');
-        const buttonAdd = $('<div class="selector" data-name="add" data-type="button">Добавить в альтернативный сервер</div>');
-
-        html.append(field).append(fieldPort).append(buttonAdd);
-
-        const settings = new Lampa.Settings({
-            title: 'Локальный TorrServer',
-            html: html,
-            onBack: () => Lampa.Controller.toggle('settings')
-        });
-
-        Lampa.Controller.add('local_torrserver', {
-            toggle: () => {
-                Lampa.Controller.collectionSet(html);
-                Lampa.Controller.collectionFocus(field[0], html);
-            },
-            back: () => Lampa.Controller.toggle('settings')
-        });
-
-        // Кнопка "Добавить в альтернативный сервер"
-        settings.render().on('hover:enter', (e) => {
-            const name = $(e.target).data('name');
-            if (name === 'add') {
-                const data = Lampa.Storage.get('local_torrserver');
-                if (data && data.ip && data.port) {
-                    const url = `http://${data.ip}:${data.port}`;
-                    Lampa.Storage.set('torrserver_url_alternative', url);
-                    Lampa.Noty.show(`Добавлен альтернативный сервер: ${url}`);
-                } else {
-                    Lampa.Noty.show('Сначала нужно найти сервер');
+        candidates.forEach(function (c) {
+            chain = chain.then(function (res) {
+                if (res) {
+                    found = res;
+                    return res;
                 }
-            }
+                return checkHost(c.h, c.p);
+            });
         });
 
-        // Редактирование полей вручную
-        settings.render().on('update', (e, name, value) => {
-            const data = Lampa.Storage.get('local_torrserver') || {};
-            if (name === 'ip') data.ip = value;
-            if (name === 'port') data.port = value;
-            Lampa.Storage.set('local_torrserver', data);
+        return chain.then(function () { return found; });
+    }
+
+    function openLocalSettings(server) {
+        var ip = server ? server.host : 'не найден';
+        var port = server ? server.port : '';
+        var html = $('<div class="about"><div class="about__title">Локальный TorrServer</div></div>');
+        var fieldIP = $('<div class="selector" data-name="ip" data-type="input">IP: <span>' + ip + '</span></div>');
+        var fieldPort = $('<div class="selector" data-name="port" data-type="input">Порт: <span>' + port + '</span></div>');
+        var buttonAdd = $('<div class="selector" data-name="add" data-type="button">Добавить в альтернативный сервер ' + icon_add_server + '</div>');
+
+        html.append(fieldIP).append(fieldPort).append(buttonAdd);
+
+        Lampa.Controller.collectionSet(html);
+
+        buttonAdd.on('hover:enter hover:click hover:touch', function () {
+            if (server) {
+                var url = 'http://' + server.host + ':' + server.port;
+                Lampa.Storage.set('torrserver_url_alternative', url);
+                Lampa.Noty.show('Добавлен альтернативный сервер: ' + url);
+            } else {
+                Lampa.Noty.show('Сначала нужно найти сервер');
+            }
         });
     }
 
-    // 6. Регистрация плагина
-    window.Plugin.create('Checker TorrServer', plugin => {
+    function initPlugin() {
         console.log('Checker TorrServer plugin initialized');
 
-        // Встроить в настройки TorrServer
-        if (Lampa.SettingsApi && Lampa.SettingsApi.addSubComponent) {
-            Lampa.SettingsApi.addSubComponent('torrserver', {
-                component: 'local_torrserver',
-                name: 'Локальный TorrServer',
-                onEnter: openLocalSettings
-            });
-        }
-
-        // Автопоиск сервера при запуске
-        discoverTorrServer().then(server => {
+        discoverTorrServer().then(function (server) {
             if (server) {
-                Lampa.Storage.set('local_torrserver', { ip: server.host, port: server.port });
-                Lampa.Noty.show(`TorrServer найден: ${server.host}:${server.port}`);
+                Lampa.Storage.set('local_torrserver', server);
+                Lampa.Noty.show('TorrServer найден: ' + server.host + ':' + server.port);
             } else {
                 Lampa.Noty.show('TorrServer не найден');
             }
+
+            // Добавим кнопку в заголовок приложения для теста
+            var addBtn = $('<div class="head__action selector" id="LOCAL_TORRSERVER">' + icon_add_server + '</div>');
+            $('#app > div.head > div > div.head__actions').append(addBtn);
+            addBtn.on('hover:enter hover:click hover:touch', function () { openLocalSettings(server); });
         });
-    });
+    }
+
+    if (window.appready) initPlugin();
+    else {
+        Lampa.Listener.follow('app', function (e) {
+            if (e.type === 'ready') initPlugin();
+        });
+    }
+
 })();
