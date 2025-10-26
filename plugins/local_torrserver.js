@@ -1,7 +1,7 @@
 // name: Checker TorrServer
 // author: Виктор
-// version: 1.0.1
-// description: Находит локальный TorrServer и позволяет добавить его в альтернативный сервер
+// version: 1.0.2
+// description: Ищет локальный TorrServer и позволяет добавить его в альтернативный сервер
 
 (function () {
     'use strict';
@@ -13,7 +13,6 @@
     var ports = [8090, 8080];
     var hosts = ['127.0.0.1', 'localhost'];
     var subnets = ['192.168.0', '192.168.1', '10.0.0'];
-
     var serverFound = null;
 
     function checkHost(host, port, callback) {
@@ -31,47 +30,28 @@
             }
         };
         xhr.ontimeout = function () { callback(null); };
-        try {
-            xhr.open('GET', 'http://' + host + ':' + port + '/', true);
-            xhr.send();
-        } catch (e) {
-            callback(null);
-        }
+        try { xhr.open('GET', 'http://' + host + ':' + port + '/', true); xhr.send(); } 
+        catch (e) { callback(null); }
     }
 
     function scanCandidates(candidates, index, finalCallback) {
-        if (index >= candidates.length) {
-            finalCallback(null);
-            return;
-        }
+        if (index >= candidates.length) { finalCallback(null); return; }
         checkHost(candidates[index].h, candidates[index].p, function (result) {
-            if (result) {
-                finalCallback(result);
-            } else {
-                scanCandidates(candidates, index + 1, finalCallback);
-            }
+            if (result) finalCallback(result);
+            else scanCandidates(candidates, index + 1, finalCallback);
         });
     }
 
     function discoverTorrServer(finalCallback) {
         var candidates = [];
         var i, p;
+        for (i = 0; i < hosts.length; i++)
+            for (p = 0; p < ports.length; p++) candidates.push({ h: hosts[i], p: ports[p] });
 
-        // hosts
-        for (i = 0; i < hosts.length; i++) {
-            for (p = 0; p < ports.length; p++) {
-                candidates.push({ h: hosts[i], p: ports[p] });
-            }
-        }
-
-        // subnets
-        for (var s = 0; s < subnets.length; s++) {
-            for (var j = 1; j <= 10; j++) {
-                for (p = 0; p < ports.length; p++) {
+        for (var s = 0; s < subnets.length; s++)
+            for (var j = 1; j <= 10; j++)
+                for (p = 0; p < ports.length; p++)
                     candidates.push({ h: subnets[s] + '.' + j, p: ports[p] });
-                }
-            }
-        }
 
         scanCandidates(candidates, 0, finalCallback);
     }
@@ -109,12 +89,17 @@
             } else {
                 Lampa.Noty.show('TorrServer не найден');
             }
-
-            // Добавляем кнопку в шапку приложения
-            var addBtn = $('<div class="head__action selector" id="LOCAL_TORRSERVER">' + icon_add_server + '</div>');
-            $('#app > div.head > div > div.head__actions').append(addBtn);
-            addBtn.on('hover:enter hover:click hover:touch', function () { openLocalSettings(serverFound); });
         });
+
+        // Добавляем плагин в корневое меню
+        if (Lampa.SettingsApi && Lampa.SettingsApi.addComponent) {
+            Lampa.SettingsApi.addComponent({
+                component: 'local_torrserver',
+                name: 'Checker TorrServer',
+                icon: icon_add_server,
+                onEnter: function () { openLocalSettings(serverFound); }
+            });
+        }
     }
 
     if (window.appready) initPlugin();
