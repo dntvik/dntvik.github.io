@@ -1,6 +1,6 @@
 // name: Checker TorrServer
 // author: Виктор
-// version: 1.0.2
+// version: 1.0.3
 // description: Ищет локальный TorrServer и позволяет добавить его в альтернативный сервер
 
 (function () {
@@ -15,6 +15,7 @@
     var subnets = ['192.168.0', '192.168.1', '10.0.0'];
     var serverFound = null;
 
+    // Проверка одного хоста через XMLHttpRequest
     function checkHost(host, port, callback) {
         var xhr = new XMLHttpRequest();
         xhr.timeout = 1000;
@@ -34,6 +35,7 @@
         catch (e) { callback(null); }
     }
 
+    // Рекурсивный перебор всех кандидатов
     function scanCandidates(candidates, index, finalCallback) {
         if (index >= candidates.length) { finalCallback(null); return; }
         checkHost(candidates[index].h, candidates[index].p, function (result) {
@@ -42,9 +44,11 @@
         });
     }
 
+    // Генерация списка всех возможных хостов и портов
     function discoverTorrServer(finalCallback) {
         var candidates = [];
         var i, p;
+
         for (i = 0; i < hosts.length; i++)
             for (p = 0; p < ports.length; p++) candidates.push({ h: hosts[i], p: ports[p] });
 
@@ -56,6 +60,7 @@
         scanCandidates(candidates, 0, finalCallback);
     }
 
+    // Рисуем панель плагина с IP, портом и кнопкой
     function openLocalSettings(server) {
         var ip = server ? server.host : 'не найден';
         var port = server ? server.port : '';
@@ -81,23 +86,31 @@
     function initPlugin() {
         console.log('Checker TorrServer plugin initialized');
 
-        discoverTorrServer(function (server) {
-            if (server) {
-                serverFound = server;
-                Lampa.Storage.set('local_torrserver', server);
-                Lampa.Noty.show('TorrServer найден: ' + server.host + ':' + server.port);
-            } else {
-                Lampa.Noty.show('TorrServer не найден');
-            }
-        });
-
-        // Добавляем плагин в корневое меню
+        // Добавляем пункт в корневое меню настроек
         if (Lampa.SettingsApi && Lampa.SettingsApi.addComponent) {
             Lampa.SettingsApi.addComponent({
                 component: 'local_torrserver',
                 name: 'Checker TorrServer',
                 icon: icon_add_server,
-                onEnter: function () { openLocalSettings(serverFound); }
+                onEnter: function () {
+                    // Если сервер уже найден — показываем сразу
+                    if (serverFound) {
+                        openLocalSettings(serverFound);
+                    } else {
+                        Lampa.Noty.show('Идёт поиск локального TorrServer...');
+                        discoverTorrServer(function (server) {
+                            if (server) {
+                                serverFound = server;
+                                Lampa.Storage.set('local_torrserver', server);
+                                Lampa.Noty.show('TorrServer найден: ' + server.host + ':' + server.port);
+                                openLocalSettings(server);
+                            } else {
+                                Lampa.Noty.show('TorrServer не найден');
+                                openLocalSettings(null);
+                            }
+                        });
+                    }
+                }
             });
         }
     }
