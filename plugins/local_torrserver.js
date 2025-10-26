@@ -1,14 +1,11 @@
-// name: Checker TorrServer
-// author: Виктор
-// version: 1.4.0
-// description: Автоматически ищет локальный TorrServer и добавляет пункт "Локальный TorrServer" в настройки TorrServer
-
 (function () {
+    // 1. Настройки поиска TorrServer
     const ports = [8090, 8080];
     const hosts = ['127.0.0.1', 'localhost'];
     const subnets = ['192.168.0', '192.168.1', '10.0.0'];
     const timeout = 1000;
 
+    // 2. Функция fetch с таймаутом
     async function fetchWithTimeout(url, ms = 1000) {
         const controller = new AbortController();
         const id = setTimeout(() => controller.abort(), ms);
@@ -22,6 +19,7 @@
         }
     }
 
+    // 3. Проверка одного хоста
     async function checkHost(host, port) {
         const url = `http://${host}:${port}/`;
         const res = await fetchWithTimeout(url, timeout);
@@ -34,9 +32,14 @@
         return null;
     }
 
+    // 4. Основной поиск в сети
     async function discoverTorrServer() {
         const candidates = [];
+
+        // localhost
         hosts.forEach(h => ports.forEach(p => candidates.push({ h, p })));
+
+        // Локальная сеть 192.168.x.x, 10.x.x.x (только первые 10 IP каждого подсети)
         subnets.forEach(base => {
             for (let i = 1; i <= 10; i++) {
                 const ip = `${base}.${i}`;
@@ -46,11 +49,12 @@
 
         for (const { h, p } of candidates) {
             const res = await checkHost(h, p);
-            if (res) return res;
+            if (res) return res; // возвращаем первый найденный сервер
         }
         return null;
     }
 
+    // 5. Открытие настроек плагина в Lampa
     function openLocalSettings() {
         const stored = Lampa.Storage.get('local_torrserver') || {};
         const ip = stored.ip || 'не найден';
@@ -77,6 +81,7 @@
             back: () => Lampa.Controller.toggle('settings')
         });
 
+        // Кнопка "Добавить в альтернативный сервер"
         settings.render().on('hover:enter', (e) => {
             const name = $(e.target).data('name');
             if (name === 'add') {
@@ -91,6 +96,7 @@
             }
         });
 
+        // Редактирование полей вручную
         settings.render().on('update', (e, name, value) => {
             const data = Lampa.Storage.get('local_torrserver') || {};
             if (name === 'ip') data.ip = value;
@@ -99,18 +105,20 @@
         });
     }
 
-    // Основной запуск плагина
+    // 6. Регистрация плагина
     window.Plugin.create('Checker TorrServer', plugin => {
         console.log('Checker TorrServer plugin initialized');
 
-        // Добавляем пункт в настройки TorrServer
-        Lampa.SettingsApi.addSubComponent('torrserver', {
-            component: 'local_torrserver',
-            name: 'Локальный TorrServer',
-            onEnter: openLocalSettings
-        });
+        // Встроить в настройки TorrServer
+        if (Lampa.SettingsApi && Lampa.SettingsApi.addSubComponent) {
+            Lampa.SettingsApi.addSubComponent('torrserver', {
+                component: 'local_torrserver',
+                name: 'Локальный TorrServer',
+                onEnter: openLocalSettings
+            });
+        }
 
-        // Автоматический поиск сервера
+        // Автопоиск сервера при запуске
         discoverTorrServer().then(server => {
             if (server) {
                 Lampa.Storage.set('local_torrserver', { ip: server.host, port: server.port });
